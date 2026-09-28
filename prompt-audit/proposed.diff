@@ -1,0 +1,151 @@
+diff --git a/plugins/claw-hwp/skills/hwp/SKILL.md b/plugins/claw-hwp/skills/hwp/SKILL.md
+index 281f015..68faf57 100644
+--- a/plugins/claw-hwp/skills/hwp/SKILL.md
++++ b/plugins/claw-hwp/skills/hwp/SKILL.md
+@@ -114,7 +114,7 @@ When the user says "preview", they almost always mean "show me the file" — sta
+ 
+ > **⚡ Batch every edit into ONE call.** Put *all* operations for a document in a single `operations:[…]` array — one `create.js` (`.hwp`) / `hwpx-edit.js` (`.hwpx`) run — and **never invoke it once per cell or per op.** Every separate run re-reads the whole file, reloads the rhwp WASM, and re-deflates the body (~100 ms+ of fixed cost *each*) **and** spends a full agent round-trip; filling a form one cell at a time takes *minutes*, while the same edits batched finish in ~1 s (measured: 60 cell edits — batched 47 ms vs one-at-a-time 315 ms, before per-process and round-trip overhead). The multi-op examples in this skill are each a **single** call. Read the cells you need first (`extract_text --with-cell-text`), decide every edit, then send them all at once.
+ 
+-> Conversion to PDF / DOCX is **out of scope for v0**. Will be added in a later release via LibreOffice headless.
++> Conversion to PDF / DOCX is not supported.
+ 
+ ## Format primer
+ 
+@@ -240,14 +240,14 @@ All five themes use only render-confirmed fonts (see the **`font_family`** note
+ > ⚠️ **`append_image` rules of thumb (Hancom Docs compatibility — depends on target file size):**
+ >
+ > - **Building a new `.hwp` from scratch (payload starts with `setup_document`) + `append_image`** → Hancom Docs ✓. A fresh document is built through the engine's full-serialize path, which produces a valid result for new files.
+-> - **`append_image` on an existing small `.hwp`** → Hancom Docs ✓ (render verified on a small ~14 KB mini-stream form with a real PNG). Small files round-trip cleanly through the engine; the earlier blanket "in-place = Hancom Docs ✗" assumption came from testing large forms only.
++> - **`append_image` on an existing small `.hwp`** → Hancom Docs ✓ (render verified on a small ~14 KB mini-stream form with a real PNG). Small files round-trip cleanly through the engine.
+ > - **`append_image` on an existing large `.hwp` (50+ pages)** → Hancom Docs ✗. The engine's round-trip on big existing files produces bytes Hancom Docs's strict parser rejects — a known engine limitation, regardless of whether the edit is an image, a cell value, or anything else through that path. (Use raw-patch ops, or the workarounds below.)
+ > - **PNG file validity matters**: the image source must be a real PNG with valid CRCs / IDAT chunks. A test that uses a synthetic / hand-constructed PNG with placeholder CRCs will land in the document but render as a broken-image icon (the image was placed fine; the PNG content itself was undecodable). Use actual image files.
+ > - **Workarounds for the large-form case:** (a) build the entire document from scratch in a single payload so the file never round-trips, (b) pre-design the template with an image placeholder and use `replace_text` / `set_cell_text` to fill surrounding fields (those go through raw-patch and stay Hancom-compatible at any file size), or (c) open the rhwp-produced file in Hancom Office desktop, which accepts the round-trip output even when Hancom Docs (the web viewer) doesn't.
+ 
+ > ⚠️ **`apply_text_style` / `apply_paragraph_style` rules of thumb (Hancom Docs compatibility):**
+ >
+-> - **Building a new `.hwp` from scratch + styling ops** → Hancom Docs ✓. The styling rides through rhwp's `applyCharFormat` / `applyParaFormat`. All character decorations (highlight = `shadeColor`, strikethrough, underline w/ color, bold, italic, font color/size, font family, letter spacing, super/subscript, emphasis dot) are supported.
++> - **Building a new `.hwp` from scratch + styling ops** → Hancom Docs ✓. The styling rides through rhwp's `applyCharFormat` / `applyParaFormat`. All character decorations (highlight = `shadeColor`, strikethrough, underline w/ color, bold, italic, font color/size, font family, letter spacing, super/subscript) are supported.
+ > - **In-place styling on small `.hwp` files (short single-page documents)** → Hancom Docs ✓. Same rhwp-driven path. Small files round-trip through rhwp's serializer cleanly.
+ > - **In-place `apply_text_style` on a large multi-page `.hwp` file (50+ pages)** → Hancom Docs ✓ via the raw-patch CharShape path (needed because the engine's serializer can't round-trip large existing files). All character decorations apply.
+ > - **Font (`font_family`) on the in-place raw-patch path** → Hancom Docs ✓. Registers **any** font name into the file (no whitelist); whether it *renders in that font* depends on the viewer's installed fonts — same rule for `.hwp` and `.hwpx` (same viewer). The renders-everywhere **A-set** + the Webdings caveat are in the **`font_family`** note below.
+@@ -258,7 +258,7 @@ All five themes use only render-confirmed fonts (see the **`font_family`** note
+ > - **`font_family`** works for any installed font (e.g., "맑은 고딕", "함초롬돋움", "굴림", "바탕", "Arial"). The exact name is always stored in the file (no whitelist, no shape-check); *whether it actually renders* (and which names are safe) is the next point — identical for `.hwp` and `.hwpx`, since the same Hancom viewer decides.
+ > - **Which fonts actually render (web AND desktop — same rule).** **No whitelist** — any name is registered into the file; whether it *renders* depends on whether that exact font is available to the viewer. **Hancom Docs (web)** renders a fixed built-in set and substitutes the default face for the rest. **The desktop app** renders whatever fonts are installed on that machine — it is NOT an unlimited library: a font that isn't installed substitutes too (confirmed 2026-06 — the B-set below renders as the default shape in the app, not just on web). So the only names that render everywhere are the **A-set** (web-confirmed = Hancom's bundled/available set, 2026-06): Korean — `함초롬바탕`, `맑은 고딕`, `해피니스 산스 볼드/레귤러/타이틀/VF`, `Pretendard` (Thin/ExtraLight/Light/Medium/(regular)/SemiBold/Bold/ExtraBold/Black), `Apple SD 산돌고딕 Neo`, `HY견고딕`, `HY견명조`, `HY그래픽`, `HY헤드라인M`, `SpoqaHanSans`, `Cafe24 Ssurround Bold`, `카페24 슈퍼매직`; Latin — `Arial`, `Calibri`, `Comic Sans MS`, `Courier New`, `Georgia`, `Impact`, `Plantagenet Cherokee`, `Tahoma`, `Times New Roman`, `Trebuchet MS`, `Verdana`, `Symbol`. **⚠ Avoid `Webdings` / `Wingdings` / `Wingdings 2` / `Wingdings 3` for normal text** — dingbat fonts with no letterforms, so every character (including the label) renders as unreadable symbol glyphs; use them only for intentional symbol output. Other names (시스템/고전 `바탕`/`돋움`/`굴림`/`궁서`…, `나눔*`, `HY*`/`휴먼*`/`양재*`/`MD*`/`한컴 *`) render **only where that exact font is installed** for the reader — otherwise they substitute (the file still records the exact name). Default to A-set unless the user's machine is known to have the font; the built-in document **themes** all use A-set fonts so they render anywhere. (Same 91-font set + caveats as the `.hwp` track.)
+ > - **`apply_paragraph_style` index aliases**: pass `index: "last"` (or `-1`) to target the most recently appended paragraph. Useful when intermediate `append_heading` / `append_paragraph` ops would otherwise force you to count: just append + style + repeat.
+-> - **Removed in 1.5.x — `emphasis_dot` (강조점)**: previously documented as a prop, but Hancom Docs (web/cloud) silently dropped it on render — confirmed in repeated 한컴독스 verification cycles. The CharShape write itself round-tripped through Hancom Office Desktop fine, but the cloud viewer never displayed the dot. Op no longer accepts the prop; if a caller still passes `emphasis_dot`, it's silently ignored. To get visible "강조점" emphasis, suggest the user use Hancom Office desktop manual styling or pick a different visual cue (e.g. `bold` + `color`).
++> - **No `emphasis_dot` (강조점)**: Hancom Docs (web) doesn't render it, so the op ignores the prop. For visible emphasis use a different cue (e.g. `bold` + `color`), or suggest the user add 강조점 manually in Hancom Office desktop.
+ 
+ *In-place editing — these are the **`.hwp` raw-patch ops** (`create.js` → `cell-patch.js`); run on an existing file (omit `setup_document` so create.js loads the path instead of starting blank). For `.hwpx` in-place ops, see `references/hwpx-edit-ops.md`.*
+ 
+@@ -445,7 +445,7 @@ For `.hwp` input, route through `create.js`. When the path already exists and th
+    }' | node scripts/create.js
+    ```
+ 
+-2. To discover the right `section / para / control / row / col` coordinates when you don't already know them, dump table structure with `extract_text.js --inspect` (table count + per-table dimensions), or write a tiny probe that calls rhwp's `getCellInfo(sec, para, ctrl, idx)` until it errors. The `set_cell_text_by_label` op handles the common case ("set the cell next to the row labeled X") with no coordinates needed.
++2. To discover the right `section / para / control / row / col` coordinates when you don't already know them, dump them with `extract_text.js --inspect --with-cell-text` (every table's `sec/para/ctrl` plus each cell's `row/col` and text). The `set_cell_text_by_label` op handles the common case ("set the cell next to the row labeled X") with no coordinates needed.
+ 
+ 3. **`replace_text` will silently miss table cells.** rhwp's `searchText` (and therefore `replaceOne`) does not enter `<hp:tbl>`. If `replace_text` reports 0 matches on what looks like a present anchor, the anchor is almost certainly inside a table — switch to `set_cell_text_by_label`.
+ 
+@@ -461,13 +461,13 @@ Filling a blank form (the user gives a `.hwp`/`.hwpx` template and wants the fie
+ 
+ 1. **Never start the payload with `setup_document`** on an existing file — that builds a brand-new blank doc and destroys the form (`create.js` refuses it unless `allow_overwrite:true`). Load the file and use fill ops.
+ 2. **Map the fields first.** Run `extract_text.js --format markdown <file>` (shows tables + text in document order) and `--inspect` (table / cell counts). For each value the user wants, decide: is the placeholder a **body paragraph** or a **table cell**, and what is its exact text?
+-3. **Pick the tool by field type:** `replace_text {find, replace}` for inline placeholder text; cell ops for table cells (see per-format below).
++3. **Pick the tool by field type:** `replace_text` for inline placeholder text (`.hwp`: `{query, replacement}`; `.hwpx`: `{find, replace}`); cell ops for table cells (see per-format below).
+ 4. **Plain text only.** No markdown — `**bold**` lands as literal asterisks. Styling an existing form's cells is limited; if a styling op errors, report it as a limitation rather than faking it.
+ 5. **Verify** with `extract_text.js --format markdown` (did the values land?) **and a real 한컴 open** — placeholders are very often split mid-string, so always eyeball the render.
+ 
+ **`replace_text` gotchas (both formats):**
+-- **It's global** — replaces *every* occurrence of `find`. Boilerplate placeholder text that repeats (a font-name note, `○○○`, `_____`) changes everywhere. Use a **distinctive/unique** substring, or target the specific cell/index.
+-- **Escaped characters.** `<`, `>`, `&` are stored as `&lt; &gt; &amp;`, so a `find` that literally contains them won't match — search the text without the brackets. (Full-width-space / tab / line-break controls that split a placeholder mid-string, and placeholders split across differently-formatted runs, are handled automatically in `.hwpx` — see below; on `.hwp` they are not.)
++- **It's global** — replaces *every* occurrence of the search text. Boilerplate placeholder text that repeats (a font-name note, `○○○`, `_____`) changes everywhere. Use a **distinctive/unique** substring, or target the specific cell/index.
++- **Escaped characters.** `<`, `>`, `&` are stored as `&lt; &gt; &amp;`, so a search string that literally contains them won't match — search the text without the brackets. (Full-width-space / tab / line-break controls that split a placeholder mid-string, and placeholders split across differently-formatted runs, are handled automatically in `.hwpx` — see below; on `.hwp` they are not.)
+ 
+ #### `.hwpx` form notes
+ - Engine = `hwpx-edit.js` (unpack → edit XML → repack): **surgical and 한컴-safe at any document size** (no round-trip serialization).
+@@ -479,7 +479,7 @@ Filling a blank form (the user gives a `.hwp`/`.hwpx` template and wants the fie
+ - Engine = `create.js` raw-patch (`cell-patch.js`), byte-level in place: **text/cell fills are 한컴-safe at any size.**
+ - **`set_cell_text_by_label`** is the easiest tool — finds a cell by its label text and writes the adjacent cell (`col_offset`/`row_offset`), no coordinates needed.
+ - ⚠️ **`replace_text` does NOT enter table cells** here (rhwp's `searchText` skips `<hp:tbl>`). If it reports 0 matches on an anchor you can see, it's in a table → switch to `set_cell_text_by_label`.
+-- ⚠️ **Adding new objects** (images, etc.) to a **large** form (50+ pages) via the rhwp round-trip isn't 한컴-safe — on big forms, fill text/cells only.
++- ⚠️ On a **large** form (50+ pages), `append_image` goes through the rhwp round-trip and isn't 한컴-safe — add images with the raw-patch `insert_image` (and seals with `place_seal`) instead, which are 한컴-safe at any size.
+ 
+ ### "Show me what this looks like" / "Preview this HWP file"
+ 
+@@ -539,7 +539,7 @@ No host-managed pane available, but Bash can reach the user's localhost. Health-
+ > **UX caveat:** the browser preview is a lightweight inspection viewer (zoom, page navigation, text selection) — not a full-fidelity Hangul renderer. **For careful review or editing**, mention these alternatives in the same response as the preview link:
+ > - **[Hop desktop app](https://github.com/golbin/hop)** (macOS / Windows / Linux) — open-source Hangul viewer/editor on the same rhwp WASM core, with a real editor UX.
+ > - **한컴오피스 한글 / 한컴독스** — original-fidelity rendering if the user has a license or 한컴독스 account.
+-> - **PDF export via Hop** — file → PDF 내보내기. Our plugin's `.hwp → .pdf` conversion is on the v2 roadmap (LibreOffice headless / Hop CLI), not in v1.
++> - **PDF export via Hop** — file → PDF 내보내기 (this plugin has no PDF conversion).
+ > CLI preview is for "quick check while working." Detail review goes elsewhere.
+ 
+ ```bash
+@@ -622,7 +622,7 @@ If it's not installed and the user needs visual verification, run the two comman
+ 
+ For these operations, **proactively suggest** verification via `hancomdocs-capture` or instructing the user to open in 한컴독스 (web) / 한컴오피스 (desktop) — these categories have known or strongly suspected silent-strip / rejection patterns:
+ 
+-1. **Bullet / number lists** — HWPX `set_bullet_list`, `set_number_list` — 한컴독스 web silent strip unless hwpx fingerprint matches Hancom-native (24 failed iterations before fix landed)
++1. **Bullet / number lists** — HWPX `set_bullet_list`, `set_number_list` — 한컴독스 web silent strip unless the hwpx fingerprint matches Hancom-native
+ 2. **Table structure changes** — HWPX `insert_table`, `merge_cells`, `set_cell_size`, `append_table_column` — base clone consistency concerns
+ 3. **Paragraph styling beyond text** — `apply_paragraph_style` (HWPX XML / HWP raw-patch), HWPX `set_page_break` — paraPr sanitize concerns
+ 4. **Header / footer / notes** — HWPX `set_header`, `set_footer`, `insert_footnote`, `insert_endnote` — control envelope verification gaps
+@@ -632,7 +632,6 @@ Otherwise: don't push verification — user can invoke the companion skill thems
+ 
+ ## Common pitfalls
+ 
+-- **HWP 5.0 lossy round-trip**: `.hwp` → `.hwpx` → `.hwp` may drop formatting. Default to `.hwpx` output. Only round-trip back to `.hwp` on explicit user request, and warn first.
+ - **Misnamed extensions**: a `.hwp` file may actually be HWPX (starts with `PK`). Detect by reading the magic bytes before deciding on workflow.
+ - **Encoding**: all HWPX XML is UTF-8. Never transcode. Don't escape Korean characters as XML entities — write them as-is.
+ - **Whitespace preservation**: HWPX uses `xml:space="preserve"` on text runs. When inserting new text via `Edit`, keep the attribute on the parent element or wrapping `<hp:t>` so leading/trailing spaces survive.
+@@ -648,12 +647,14 @@ Otherwise: don't push verification — user can invoke the companion skill thems
+ | `scripts/unpack.py` | Python | Unzip .hwpx → directory of pretty-printed XML |
+ | `scripts/pack.py` | Python | Repack directory → .hwpx with auto-repair |
+ | `scripts/validate.py` | Python | HWPX schema and structural validation |
++| `scripts/secure-fill.mjs` | Node | Fill forms with personal data without the values entering context (see SECURE FILL) |
++| `scripts/make_seal.py` | Python + Pillow | Generate a square red 날인 PNG for `place_seal` |
+ | `scripts/preview-server.js` | Node | Static HTTP server backing the Claude Code preview pane viewer |
+ | `scripts/preview-viewer.html` + `scripts/preview-viewer.js` | static | Canvas-based vanilla-JS HWP viewer (vendored rhwp WASM, no React) |
+ 
+ ## Dependencies
+ 
+-- **Python 3.9+** — `unpack.py`, `pack.py`, `validate.py` (standard library only)
++- **Python 3.9+** — `unpack.py`, `pack.py`, `validate.py` (standard library only); `make_seal.py` also needs Pillow
+ - **Node.js 18+** — `extract_text.js`, `create.js`. `@rhwp/core` (WASM parser, ~5 MB), `fflate` (zip, ~80 KB), and `cfb` (Compound File Binary, ~62 KB) are bundled in `scripts/vendor/` — **no `npm install` step required**.
+ 
+ ## References
+@@ -661,4 +662,7 @@ Otherwise: don't push verification — user can invoke the companion skill thems
+ - `references/hwpx-format.md` — HWPX file structure, XML schema cheatsheet, common edit patterns
+ - `references/hwpx-edit-ops.md` — `hwpx-edit.js` operation vocabulary (every op, its args, and examples)
+ - `references/rhwp-api.md` — `@rhwp/core` API surface for create operations
+-- `references/equation-syntax.md` — Hangul equation script tokens for the `append_equation` op (structures + symbols)
++- `references/equation-syntax.md` — Hangul equation script tokens for the `append_equation` / `insert_equation` ops (structures + symbols)
++- `references/hwp-internals.md` — `.hwp` byte-level mechanics behind the raw-patch styling and object ops
++- `references/hwp-object-placement.md` / `references/hwpx-object-placement.md` — choosing `wrap` / position for images, shapes, charts
++- `references/hwpx-style-spacing.md` — HWPX paragraph/character style and spacing details
+diff --git a/plugins/claw-hwp/skills/hwp/references/README.md b/plugins/claw-hwp/skills/hwp/references/README.md
+index 114fef9..e51e749 100644
+--- a/plugins/claw-hwp/skills/hwp/references/README.md
++++ b/plugins/claw-hwp/skills/hwp/references/README.md
+@@ -2,12 +2,12 @@
+ 
+ Reference docs that Claude consults when reasoning about HWPX format edits or `@rhwp/core` API usage. These are loaded on-demand (not always in context).
+ 
+-## Status
+-
+-🚧 v0 in progress.
+-
+-| File | Status | Purpose |
+-|------|--------|---------|
+-| `hwpx-format.md` | not started | HWPX file structure, key XML elements (`<hp:p>`, `<hp:run>`, `<hp:tbl>`, etc.), namespaces, common edit patterns. Mirrors `anthropics/skills/docx/ooxml.md` |
+-| `rhwp-api.md` | not started | Curated `@rhwp/core` API surface: how to load bytes, extract text, create paragraphs/tables, export. Filtered from the full 1300-line `rhwp.d.ts` |
+-| `equation-syntax.md` | ✅ done | Hangul equation script tokens (structures + symbols) for the `append_equation` op — only needed for Hancom-specific tokens; common LaTeX-like syntax is guessable |
++| File | Purpose |
++|------|---------|
++| `hwpx-format.md` | HWPX file structure, key XML elements (`<hp:p>`, `<hp:run>`, `<hp:tbl>`, etc.), namespaces, common edit patterns |
++| `hwpx-edit-ops.md` | `hwpx-edit.js` operation vocabulary |
++| `rhwp-api.md` | Curated `@rhwp/core` API surface: how to load bytes, extract text, create paragraphs/tables, export |
++| `hwp-internals.md` | `.hwp` byte-level mechanics (CharShape/ParaShape records, BinData) |
++| `hwp-object-placement.md` / `hwpx-object-placement.md` | Object wrap / position recipes |
++| `hwpx-style-spacing.md` | HWPX style and spacing details |
++| `equation-syntax.md` | Hangul equation script tokens (structures + symbols) for the `append_equation` op — only needed for Hancom-specific tokens; common LaTeX-like syntax is guessable |
